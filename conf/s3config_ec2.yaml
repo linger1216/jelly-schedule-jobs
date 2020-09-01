@@ -1,0 +1,17 @@
+# schedule config
+
+etcd:
+  uri: 192.168.1.31:3379
+  timeout: 5
+
+job:
+  host: localhost
+  ids:
+    S3Download: S3Download_id
+
+s3:
+  region: cn-east-2
+  accessKey: 57D59A68203EB124FBEE620DFE9EAA91
+  secretKey: 1E63F362CEA2191D9B0C040CD3F0228C
+  bucket: prod-location-trackdb
+  endPoint: s3-internal.cn-east-2.jdcloud-oss.com

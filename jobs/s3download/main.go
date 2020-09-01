@@ -142,7 +142,7 @@ func (e *S3DownloadJob) Exec(ctx context.Context, req string) (resp string, err 
 	}
 	file.Close()
 
-	return req, nil
+	return "", nil
 }
 
 func deCompressTarGzFile(gzFileName, directory, prefix string) error {

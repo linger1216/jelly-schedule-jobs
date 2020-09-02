@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	jsoniter "github.com/json-iterator/go"
+	"github.com/linger1216/jelly-schedule-jobs/jobs/s3download"
 	"github.com/linger1216/jelly-schedule-jobs/jobs/s3download/s3"
 	"github.com/linger1216/jelly-schedule/core"
 	"io"
@@ -18,17 +19,6 @@ import (
 )
 
 import _ "net/http/pprof"
-
-type S3DownloadRequest struct {
-	Keys              []string `json:"keys,omitempty" yaml:"keys" `
-	DownloadDirectory string   `json:"downloadDirectory,omitempty" yaml:"downloadDirectory" `
-	// MB
-	ReserveSpace       uint64 `json:"reserveSpace,omitempty" yaml:"reserveSpace"`
-	SpaceCheckInterval int    `json:"spaceCheckInterval,omitempty" yaml:"spaceCheckInterval" `
-
-	// tar.gz, gz, zip
-	DeCompress bool `json:"decompress,omitempty" yaml:"decompress"`
-}
 
 type S3DownloadJob struct {
 	s3svc *s3.S3Svc
@@ -46,7 +36,7 @@ func (e *S3DownloadJob) Exec(ctx context.Context, req string) (resp string, err 
 
 	fmt.Printf("%s\n", req)
 
-	request := &S3DownloadRequest{}
+	request := &s3download.Request{}
 	err = jsoniter.ConfigFastest.Unmarshal([]byte(req), request)
 	if err != nil {
 		return "", err

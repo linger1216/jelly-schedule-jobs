@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	jsoniter "github.com/json-iterator/go"
 	"github.com/linger1216/jelly-schedule-jobs/jobs/s3download"
 	"github.com/linger1216/jelly-schedule-jobs/jobs/s3download/s3"
 	"github.com/linger1216/jelly-schedule/core"
@@ -32,12 +31,45 @@ func (e *S3DownloadJob) Name() string {
 	return "S3Download"
 }
 
-func (e *S3DownloadJob) Exec(ctx context.Context, req string) (resp string, err error) {
+func (e *S3DownloadJob) parserJob(req string) (*s3download.Request, error) {
+	reqs, err := core.UnMarshalJobRequests(req, ";")
+	if err != nil {
+		return nil, err
+	}
 
-	fmt.Printf("%s\n", req)
+	metaRequest := core.NewJobRequestByMeta(reqs...)
 
 	request := &s3download.Request{}
-	err = jsoniter.ConfigFastest.Unmarshal([]byte(req), request)
+	for _, v := range reqs {
+		for _, arr := range v.Values {
+			request.Keys = append(request.Keys, arr...)
+		}
+	}
+
+	if v, ok := metaRequest.Meta[fmt.Sprintf("%s-%s", e.Name(), "DeCompress")].(bool); ok {
+		request.DeCompress = v
+	}
+
+	if v, ok := metaRequest.Meta[fmt.Sprintf("%s-%s", e.Name(), "DownloadDirectory")].(string); ok {
+		request.DownloadDirectory = v
+	}
+
+	if v, ok := metaRequest.Meta[fmt.Sprintf("%s-%s", e.Name(), "ReserveSpace")].(int); ok {
+		request.ReserveSpace = uint64(v)
+	}
+
+	if v, ok := metaRequest.Meta[fmt.Sprintf("%s-%s", e.Name(), "SpaceCheckInterval")].(int); ok {
+		request.SpaceCheckInterval = v
+	}
+
+	return request, nil
+}
+
+func (e *S3DownloadJob) Exec(ctx context.Context, req string) (resp string, err error) {
+
+	fmt.Printf("req: %s\n", req)
+
+	request, err := e.parserJob(req)
 	if err != nil {
 		return "", err
 	}

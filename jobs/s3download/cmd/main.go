@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	"github.com/linger1216/jelly-schedule-jobs/jobs/s3download"
 	"github.com/linger1216/jelly-schedule-jobs/jobs/s3download/s3"
 	"github.com/linger1216/jelly-schedule/core"
 	"io"
@@ -31,130 +30,135 @@ func (e *S3DownloadJob) Name() string {
 	return "S3Download"
 }
 
-func (e *S3DownloadJob) parserJob(req string) (*s3download.Request, error) {
-	reqs, err := core.UnMarshalJobRequests(req, ";")
-	if err != nil {
-		return nil, err
-	}
-
-	metaRequest := core.NewJobRequestByMeta(reqs...)
-
-	request := &s3download.Request{}
-	for _, v := range reqs {
-		for _, arr := range v.Values {
-			request.Keys = append(request.Keys, arr...)
-		}
-	}
-
-	if v, ok := metaRequest.Meta[fmt.Sprintf("%s-%s", e.Name(), "DeCompress")].(bool); ok {
-		request.DeCompress = v
-	}
-
-	if v, ok := metaRequest.Meta[fmt.Sprintf("%s-%s", e.Name(), "DownloadDirectory")].(string); ok {
-		request.DownloadDirectory = v
-	}
-
-	if v, ok := metaRequest.Meta[fmt.Sprintf("%s-%s", e.Name(), "ReserveSpace")].(int); ok {
-		request.ReserveSpace = uint64(v)
-	}
-
-	if v, ok := metaRequest.Meta[fmt.Sprintf("%s-%s", e.Name(), "SpaceCheckInterval")].(int); ok {
-		request.SpaceCheckInterval = v
-	}
-
-	return request, nil
-}
-
 func (e *S3DownloadJob) Exec(ctx context.Context, req string) (resp string, err error) {
 
 	fmt.Printf("req: %s\n", req)
 
-	request, err := e.parserJob(req)
+	reqs, err := core.UnMarshalJobRequests(req, ";")
 	if err != nil {
 		return "", err
 	}
 
-	if !strings.HasSuffix(request.DownloadDirectory, string(os.PathSeparator)) {
-		request.DownloadDirectory += string(os.PathSeparator)
+	if len(reqs) == 0 {
+		return "", fmt.Errorf("empty request")
 	}
 
-	if request.SpaceCheckInterval == 0 {
-		request.SpaceCheckInterval = 600
+	if len(reqs) > 1 {
+		fmt.Printf("too many job request\n")
 	}
 
-	if len(request.DownloadDirectory) == 0 {
+	request := reqs[0]
+	DeCompress := request.GetBoolFromMeta(fmt.Sprintf("%s-%s", e.Name(), "DeCompress"))
+	DownloadDirectory := request.GetStringFromMeta(fmt.Sprintf("%s-%s", e.Name(), "DownloadDirectory"))
+	if len(DownloadDirectory) == 0 {
 		return "", fmt.Errorf("DownloadDirectory is empty")
 	}
+	if !strings.HasSuffix(DownloadDirectory, string(os.PathSeparator)) {
+		DownloadDirectory += string(os.PathSeparator)
+	}
 
-	if len(request.Keys) == 0 {
+	ReserveSpace := uint64(request.GetInt64FromMeta(fmt.Sprintf("%s-%s", e.Name(), "ReserveSpace")))
+	if ReserveSpace == 0 {
+		ReserveSpace = 1024
+	}
+
+	SpaceCheckInterval := request.GetInt64FromMeta(fmt.Sprintf("%s-%s", e.Name(), "SpaceCheckInterval"))
+	if SpaceCheckInterval == 0 {
+		SpaceCheckInterval = 600
+	}
+
+	if len(request.Values) == 0 {
 		return "", nil
 	}
 
 	// create path
-	err = os.MkdirAll(request.DownloadDirectory, os.ModePerm)
+	err = os.MkdirAll(DownloadDirectory, os.ModePerm)
 	if err != nil {
 		return "", err
 	}
 
-	for i := 0; i < len(request.Keys); i++ {
-		key := request.Keys[i]
+	m := make(map[string][]string)
 
-		// check 剩余容量
-		usage := DiskUsage(request.DownloadDirectory)
-		if usage.Free <= request.ReserveSpace*1024*1024 {
-			fmt.Printf("space not enough %dMB<%dMB\n", usage.Free/1024/1024, request.ReserveSpace)
-			timer := time.NewTimer(time.Second * 600)
-			select {
-			case <-timer.C:
-			}
-			i--
-			continue
-		}
-
-		// 下载
-		downloadFilename := request.DownloadDirectory + path.Base(key)
-		tmpDownloadFilename := downloadFilename + ".tmp"
-
-		fmt.Printf("download file:%s...\n", key)
-		//if !PathExists(tmpDownloadFilename) {
-		_, err := e.s3svc.DownloadObject(key, tmpDownloadFilename)
-		if err != nil {
-			return "", err
-		}
-		//}
-
-		compressFormat := exactCompressFormat(path.Base(key))
-		if !request.DeCompress || len(compressFormat) == 0 {
-			// 说明不需要解压
-			// 重命名
-			if err := os.Rename(tmpDownloadFilename, downloadFilename); err != nil {
-				return "", err
-			}
+	insertM := func(k, v string) {
+		if _, ok := m[k]; ok {
+			m[k] = append(m[k], v)
 		} else {
-			fmt.Printf("decompress %s\n", downloadFilename)
-			// 解压
-			prefix := strings.ReplaceAll(path.Dir(key), string(os.PathSeparator), "_") + "_"
-			switch compressFormat {
-			case ".zip":
-				err = deCompressZipFile(tmpDownloadFilename, request.DownloadDirectory, prefix)
-				if err != nil {
-					return "", err
+			m[k] = []string{v}
+		}
+	}
+
+	for group := range request.Values {
+		for i := 0; i < len(request.Values[group]); i++ {
+			key := request.Values[group][i]
+
+			// check 剩余容量
+			usage := DiskUsage(DownloadDirectory)
+			if usage.Free <= ReserveSpace*1024*1024 {
+				fmt.Printf("space not enough %dMB<%dMB\n", usage.Free/1024/1024, ReserveSpace)
+				timer := time.NewTimer(time.Second * 600)
+				select {
+				case <-timer.C:
 				}
-			case ".gz":
-			case ".targz":
-				err = deCompressTarGzFile(tmpDownloadFilename, request.DownloadDirectory, prefix)
-				if err != nil {
-					return "", err
-				}
+				i--
+				continue
 			}
 
-			// 删除临时文件
-			err = os.Remove(tmpDownloadFilename)
+			// 下载
+			downloadFilename := DownloadDirectory + path.Base(key)
+			tmpDownloadFilename := downloadFilename + ".tmp"
+
+			fmt.Printf("download file:%s...\n", key)
+			//if !PathExists(tmpDownloadFilename) {
+			_, err := e.s3svc.DownloadObject(key, tmpDownloadFilename)
 			if err != nil {
 				return "", err
 			}
+			//}
+
+			compressFormat := exactCompressFormat(path.Base(key))
+			if !DeCompress || len(compressFormat) == 0 {
+				// 说明不需要解压
+				// 重命名
+				if err := os.Rename(tmpDownloadFilename, downloadFilename); err != nil {
+					return "", err
+				}
+
+				// 保存新values
+				insertM(group, downloadFilename)
+			} else {
+				fmt.Printf("decompress %s\n", downloadFilename)
+				// 解压
+				prefix := strings.ReplaceAll(path.Dir(key), string(os.PathSeparator), "_") + "_"
+				switch compressFormat {
+				case ".zip":
+					arr, err := deCompressZipFile(tmpDownloadFilename, DownloadDirectory, prefix)
+					if err != nil {
+						return "", err
+					}
+					for j := range arr {
+						insertM(group, arr[j])
+					}
+				case ".gz":
+				case ".targz":
+					arr, err := deCompressTarGzFile(tmpDownloadFilename, DownloadDirectory, prefix)
+					if err != nil {
+						return "", err
+					}
+					for j := range arr {
+						insertM(group, arr[j])
+					}
+				}
+
+				// 删除临时文件
+				err = os.Remove(tmpDownloadFilename)
+				if err != nil {
+					return "", err
+				}
+			}
 		}
 	}
+
+	request.Values = m
 
 	// end
 	//endFile := "end"
@@ -164,19 +168,22 @@ func (e *S3DownloadJob) Exec(ctx context.Context, req string) (resp string, err 
 	//}
 	//file.Close()
 
-	return req, nil
+	return core.MarshalJobRequests(";", request)
 }
 
-func deCompressTarGzFile(gzFileName, directory, prefix string) error {
+func deCompressTarGzFile(gzFileName, directory, prefix string) ([]string, error) {
+
+	arr := make([]string, 0)
+
 	srcFile, err := os.Open(gzFileName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer srcFile.Close()
 
 	gr, err := gzip.NewReader(srcFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer gr.Close()
 
@@ -196,6 +203,8 @@ func deCompressTarGzFile(gzFileName, directory, prefix string) error {
 		if err := os.Rename(filenameTmp, filename); err != nil {
 			return err
 		}
+
+		arr = append(arr, filename)
 		return nil
 	}
 
@@ -205,22 +214,25 @@ func deCompressTarGzFile(gzFileName, directory, prefix string) error {
 			if err == io.EOF {
 				break
 			} else {
-				return err
+				return nil, err
 			}
 		}
 		err = decompressSingle(directory + prefix + hdr.Name)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
-	return nil
+	return arr, nil
 }
 
-func deCompressZipFile(zipFile, directory, prefix string) error {
+func deCompressZipFile(zipFile, directory, prefix string) ([]string, error) {
+
+	arr := make([]string, 0)
+
 	reader, err := zip.OpenReader(zipFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer reader.Close()
 
@@ -253,16 +265,18 @@ func deCompressZipFile(zipFile, directory, prefix string) error {
 		if err := os.Rename(tmp, filename); err != nil {
 			return err
 		}
+
+		arr = append(arr, filename)
 		return nil
 	}
 
 	for i := range reader.File {
 		err = deCompressSingle(directory, reader.File[i].Name, reader.File[i])
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return arr, nil
 }
 
 func main() {

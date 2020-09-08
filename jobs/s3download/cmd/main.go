@@ -157,14 +157,14 @@ func (e *S3DownloadJob) Exec(ctx context.Context, req string) (resp string, err 
 	}
 
 	// end
-	endFile := "end"
-	file, err := os.Create(request.DownloadDirectory + endFile)
-	if err != nil {
-		return "", err
-	}
-	file.Close()
+	//endFile := "end"
+	//file, err := os.Create(request.DownloadDirectory + endFile)
+	//if err != nil {
+	//	return "", err
+	//}
+	//file.Close()
 
-	return "", nil
+	return req, nil
 }
 
 func deCompressTarGzFile(gzFileName, directory, prefix string) error {

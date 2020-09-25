@@ -44,24 +44,27 @@ func (s *DumpTablesJob) Exec(ctx context.Context, req string) (string, error) {
 			}
 		}
 	}
-
-	ret := make([]string, 0)
+	resp := core.NewJobRequestByMeta(request)
 	for i := range reqs {
 		for j := range reqs[i].Uri {
-			tables, err := _exec(reqs[i].Uri[j])
+			uri := reqs[i].Uri[j]
+			info, err := _exec(uri)
 			if err != nil {
 				return "", err
 			}
-			ret = append(ret, tables...)
+			buf, err := jsoniter.ConfigFastest.Marshal(info)
+			if err != nil {
+				return "", err
+			}
+			resp.Values[fmt.Sprintf("%s-%s", dump_tables.HandlePrefix, uri)] =
+				append(resp.Values[dump_tables.HandlePrefix], string(buf))
 		}
 	}
 
-	resp := core.NewJobRequestByMeta(request)
-	resp.Values[dump_tables.HandlePrefix] = append(resp.Values[dump_tables.HandlePrefix], ret...)
 	return core.MarshalJobRequest(resp)
 }
 
-func _exec(uri string) ([]string, error) {
+func _exec(uri string) (*dump_tables.Response, error) {
 	if len(uri) == 0 {
 		return nil, nil
 	}
@@ -84,7 +87,7 @@ func _exec(uri string) ([]string, error) {
 	return nil, nil
 }
 
-func _readPostgresTables(uri string) ([]string, error) {
+func _readPostgresTables(uri string) (*dump_tables.Response, error) {
 	const ShowTablesQuery = `select relname as table_name,cast(obj_description(relfilenode,'pg_class') as varchar) as comment from pg_class c 
 where  relkind = 'r' and relname not like 'pg_%' and relname not like 'sql_%' and relchecks=0 order by relname;`
 
@@ -99,7 +102,7 @@ where  relkind = 'r' and relname not like 'pg_%' and relname not like 'sql_%' an
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	ret := make([]string, 0)
+	arr := make([]string, 0)
 	for rows.Next() {
 		line := make(map[string]interface{})
 		err = rows.MapScan(line)
@@ -110,11 +113,14 @@ where  relkind = 'r' and relname not like 'pg_%' and relname not like 'sql_%' an
 		if v, ok := line["table_name"]; ok {
 			t := _toString(v)
 			if len(t) > 0 {
-				ret = append(ret, t)
+				arr = append(arr, t)
 			}
 		}
 	}
-	return ret, nil
+	return &dump_tables.Response{
+		Uri:    uri,
+		Tables: arr,
+	}, nil
 }
 
 func _toString(v interface{}) string {

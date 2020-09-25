@@ -6,7 +6,9 @@ require (
 	github.com/aws/aws-sdk-go v1.34.14
 	github.com/ddliu/motto v0.3.1
 	github.com/gookit/goutil v0.3.5 // indirect
+	github.com/jmoiron/sqlx v1.2.0
 	github.com/json-iterator/go v1.1.10
+	github.com/lib/pq v1.8.0
 	github.com/linger1216/jelly-schedule v0.0.0-20200924103444-234e5a1b045e
 	github.com/robertkrimen/otto v0.0.0-20191219234010-c382bd3c16ff
 	gopkg.in/sourcemap.v1 v1.0.5 // indirect

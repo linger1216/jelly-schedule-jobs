@@ -1,4 +1,4 @@
-package dump_tables
+package utils
 
 import (
 	"fmt"

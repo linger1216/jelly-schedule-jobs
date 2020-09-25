@@ -5,6 +5,7 @@ import (
 	"fmt"
 	jsoniter "github.com/json-iterator/go"
 	dump_tables "github.com/linger1216/jelly-schedule-jobs/jobs/dump-tables"
+	"github.com/linger1216/jelly-schedule-jobs/utils"
 	"github.com/linger1216/jelly-schedule/core"
 	"net/url"
 	"strings"
@@ -91,7 +92,7 @@ func _readPostgresTables(uri string) (*dump_tables.Response, error) {
 	const ShowTablesQuery = `select relname as table_name,cast(obj_description(relfilenode,'pg_class') as varchar) as comment from pg_class c 
 where  relkind = 'r' and relname not like 'pg_%' and relname not like 'sql_%' and relchecks=0 order by relname;`
 
-	db := dump_tables.NewPostgres(&dump_tables.PostgresConfig{
+	db := utils.NewPostgres(&utils.PostgresConfig{
 		Uri: uri,
 	})
 

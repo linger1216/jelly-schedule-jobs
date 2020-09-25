@@ -7,6 +7,7 @@ import (
 	"github.com/linger1216/jelly-schedule-jobs/jobs/scp"
 	"github.com/linger1216/jelly-schedule/core"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,7 @@ func NewScpJob() *ScpJob {
 }
 
 func (s *ScpJob) Name() string {
-	panic("implement me")
+	return "ScpJob"
 }
 
 func (s *ScpJob) Exec(ctx context.Context, req string) (string, error) {
@@ -47,18 +48,20 @@ func (s *ScpJob) Exec(ctx context.Context, req string) (string, error) {
 		}
 	}
 
+	resp := core.NewJobRequestByMeta(request)
 	for i := range reqs {
-		exec(reqs[i])
+		scpFiles, err := _exec(reqs[i])
+		if err != nil {
+			return "", err
+		}
+		resp.Values[scp.HandlePrefix] = append(resp.Values[scp.HandlePrefix], scpFiles...)
 	}
 
-	resp := core.NewJobRequestByMeta(request)
-	_ = resp
-
-	return "", nil
+	return core.MarshalJobRequest(resp)
 }
 
 // 哪个目录下, 有哪些文件进行了scp
-func exec(request *scp.Request) []string {
+func _exec(request *scp.Request) ([]string, error) {
 	if strings.HasSuffix(request.DstDirectory, string(os.PathSeparator)) {
 		request.DstDirectory = request.DstDirectory[:len(request.DstDirectory)-1]
 	}
@@ -93,7 +96,15 @@ func exec(request *scp.Request) []string {
 		handleFiles = append(handleFiles, request.DstDirectory+string(os.PathSeparator)+srcFileName)
 	}
 
-	return nil
+	for _, cmd := range cmds {
+		command := exec.Command("/bin/sh", "-c", cmd)
+		_, err := command.Output()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return handleFiles, nil
 }
 
 func getFileList(path string) []string {
@@ -116,31 +127,35 @@ func getFileList(path string) []string {
 }
 
 func main() {
-	//core.StartClientJob(NewScpJob())
-	test()
+	core.StartClientJob(NewScpJob())
+	//test()
 }
 
 func test() {
 
-	//req := &scp.Request{
-	//	SrcFiles: nil,
-	//	SrcDirectories: []string{
-	//		"/Users/lid.guan/Downloads/go_module_proc/cron-task/jelly-schedule-jobs",
-	//	},
-	//	DstUser:      "root",
-	//	DstHost:      "114.67.106.133",
-	//	DstPort:      22,
-	//	DstDirectory: "/root",
-	//}
-
 	req := &scp.Request{
-		SrcFiles: []string{"/Users/lid.guan/Downloads/go_module_proc/cron-task/jelly-schedule-jobs/go.mod",
-			"/Users/lid.guan/Downloads/go_module_proc/cron-task/jelly-schedule-jobs/README.md"},
+		SrcFiles: []string{
+			"/Users/lid.guan/Downloads/go_module_proc/cron-task/jelly-schedule-jobs/go.mod",
+			"/Users/lid.guan/Downloads/go_module_proc/cron-task/jelly-schedule-jobs/README.md",
+			"/Users/lid.guan/Desktop/neighborhood.tar.gz",
+		},
+		SrcDirectories: []string{
+			"/Users/lid.guan/Downloads/go_module_proc/cron-task/jelly-schedule-jobs",
+		},
 		DstUser:      "root",
 		DstHost:      "114.67.106.133",
 		DstPort:      22,
-		DstDirectory: "/root",
+		DstDirectory: "/root/scp",
 	}
+
+	//req := &scp.Request{
+	//	SrcFiles: []string{"/Users/lid.guan/Downloads/go_module_proc/cron-task/jelly-schedule-jobs/go.mod",
+	//		"/Users/lid.guan/Downloads/go_module_proc/cron-task/jelly-schedule-jobs/README.md"},
+	//	DstUser:      "root",
+	//	DstHost:      "114.67.106.133",
+	//	DstPort:      22,
+	//	DstDirectory: "/root/scp",
+	//}
 
 	buf, _ := jsoniter.ConfigFastest.Marshal(req)
 
@@ -148,5 +163,6 @@ func test() {
 	jobRequest.Values[scp.KeyPrefix] = append(jobRequest.Values[scp.KeyPrefix], string(buf))
 
 	para, _ := core.MarshalJobRequest(jobRequest)
-	NewScpJob().Exec(nil, para)
+	xxx, _ := NewScpJob().Exec(nil, para)
+	fmt.Printf("%v\n", xxx)
 }
